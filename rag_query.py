@@ -80,7 +80,8 @@ def make_prompt(query: str, contexts: List[str], tokenizer) -> str:
         "2. Answer the question using ONLY the information from that single most relevant section.\n"
         "3. Be concise and do not include information from other, irrelevant sections. Do not repeat the question or "
         "section titles.\n"
-        "4. If the context contains commands, show ONLY those commands (bash or gcloud).\n\n"
+        "4. If the context contains commands, show ONLY those commands (bash or gcloud).\n"
+        "5. If the answer is not in the context, reply exactly: Not found in documents.\n\n"
         f"--- CONTEXT ---\n{context_block}\n\n"
         f"--- QUESTION ---\n{query}\n\nAnswer:"
     )
