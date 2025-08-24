@@ -19,12 +19,15 @@ except ImportError:
 
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
-from transformers import pipeline
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 
 PERSIST_DIR = "./chroma_db"
 COLLECTION = "project_docs"
 
 
+# -------------------------------
+# Load Retriever
+# -------------------------------
 def load_retriever(k: int = 4):
     embedding = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     db = Chroma(
@@ -35,37 +38,65 @@ def load_retriever(k: int = 4):
     return db.as_retriever(search_kwargs={"k": k})
 
 
-def build_local_llm():
-    device = 0 if torch.cuda.is_available() else -1  # 0 = first GPU, -1 = CPU
-    return pipeline(
+# -------------------------------
+# Build Local LLM
+# -------------------------------
+def build_local_llm(model_name: str = "google/flan-t5-large"):
+    device = 0 if torch.cuda.is_available() else -1
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+    # Force correct context length (flan-large supports 1024)
+    tokenizer.model_max_length = 1024
+
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    llm = pipeline(
         "text2text-generation",
-        model="google/flan-t5-large",
-        device=device,
+        model=model,
+        tokenizer=tokenizer,
+        device=device
     )
+    return llm, tokenizer
 
 
-def make_prompt(query: str, contexts: List[str]) -> str:
-    context_block = "\n\n---\n\n".join(contexts)
-    # This new prompt template instructs the model to filter the context first
+# -------------------------------
+# Helper: truncate context
+# -------------------------------
+def truncate_context(contexts: List[str], tokenizer, max_tokens: int = 900) -> str:
+    joined = "\n\n---\n\n".join(contexts)
+    tokens = tokenizer.encode(joined, truncation=True, max_length=max_tokens)
+    return tokenizer.decode(tokens, skip_special_tokens=True)
+
+
+# -------------------------------
+# Prompt Builder
+# -------------------------------
+def make_prompt(query: str, contexts: List[str], tokenizer) -> str:
+    context_block = truncate_context(contexts, tokenizer)
     return (
         "You are a helpful assistant. Your task is to answer a question based on the context below.\n\n"
         "INSTRUCTIONS:\n"
-        "1. First, carefully read the entire context to find the section that is most relevant to the user's question.\n"
+        "1. First, carefully read the entire context to find the section that is most relevant to the user's "
+        "question.\n"
         "2. Answer the question using ONLY the information from that single most relevant section.\n"
-        "3. Be concise and do not include information from other, irrelevant sections. Do not repeat the question or section titles.\n\n"
+        "3. Be concise and do not include information from other, irrelevant sections. Do not repeat the question or "
+        "section titles.\n"
+        "4. If the context contains commands, show ONLY those commands (bash or gcloud).\n\n"
         f"--- CONTEXT ---\n{context_block}\n\n"
         f"--- QUESTION ---\n{query}\n\nAnswer:"
     )
 
 
+# -------------------------------
+# Query Answering
+# -------------------------------
 def answer_query(query: str, show_sources: bool = True, top_k: int = 4) -> Tuple[str, List[dict]]:
     retriever = load_retriever(k=top_k)
     docs = retriever.get_relevant_documents(query)
     contexts = [d.page_content for d in docs]
 
-    llm = build_local_llm()
-    prompt = make_prompt(query, contexts)
-    out = llm(prompt)[0]["generated_text"].strip()
+    llm, tokenizer = build_local_llm()
+    prompt = make_prompt(query, contexts, tokenizer)
+    out = llm(prompt, max_new_tokens=256)[0]["generated_text"].strip()
 
     sources = []
     if show_sources:
@@ -78,6 +109,9 @@ def answer_query(query: str, show_sources: bool = True, top_k: int = 4) -> Tuple
     return out, sources
 
 
+# -------------------------------
+# CLI Entrypoint
+# -------------------------------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Ask questions to your local RAG system")
     parser.add_argument("question", type=str, help="The question to ask")
