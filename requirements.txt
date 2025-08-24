@@ -1,0 +1,21 @@
+# Core RAG stack (local only)
+langchain>=0.2.10
+langchain-community>=0.2.10
+chromadb>=0.5.3
+sentence-transformers>=2.7.0
+transformers>=4.42.0
+pypdf>=4.2.0
+
+# Local inference + speedups
+torch>=2.2.0           # CPU build is fine; see note below
+accelerate>=0.30.0
+
+# Nice-to-haves / common deps
+numpy>=1.26
+tqdm>=4.66
+huggingface-hub>=0.23.0
+sentencepiece>=0.2.0   # needed by many HF models
+protobuf>=4.25.0
+
+# Optional: use FAISS instead of (or alongside) Chroma
+# faiss-cpu>=1.7.4
